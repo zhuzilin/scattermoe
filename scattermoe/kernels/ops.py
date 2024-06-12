@@ -4,6 +4,8 @@ import triton.language as tl
 from torch.nn import functional as F
 
 BLOCK_M = 128
+NO_K_MASK = lambda args: (args['K'] % args['BLOCK_K']) == 0
+NO_N_MASK = lambda args: (args['N'] % args['BLOCK_N']) == 0
 
 @torch.jit.script
 def flatten_and_sort(expert_idxs:torch.Tensor):
@@ -41,10 +43,7 @@ def _scatter2scatter_configs():
     ]
 
 @triton.autotune(configs=_scatter2scatter_configs(), key=['M', 'N', 'K'], )
-@triton.heuristics({
-    "NO_K_MASK": lambda args: (args['K'] % args['BLOCK_K']) == 0,
-    "NO_N_MASK": lambda args: (args['N'] % args['BLOCK_N']) == 0,
-})
+@triton.heuristics({"NO_K_MASK": NO_K_MASK, "NO_N_MASK": NO_N_MASK})
 @triton.jit
 def _scatter2scatter(
     X_ptr, stride_xm, stride_xk,
@@ -192,10 +191,7 @@ def group_bwd_W(DY, X, expert_offsets, E):
         return DW
 
 @triton.autotune(configs=_config_XtY(), key=['M', 'N', 'K'], )
-@triton.heuristics({
-    "NO_K_MASK": lambda args: (args['K'] % args['BLOCK_K']) == 0,
-    "NO_N_MASK": lambda args: (args['N'] % args['BLOCK_N']) == 0,
-})
+@triton.heuristics({"NO_K_MASK": NO_K_MASK, "NO_N_MASK": NO_N_MASK})
 @triton.jit
 def _groupXtY(
     DY_ptr, stride_dym, stride_dyk,
@@ -297,9 +293,7 @@ def group(A, sorted_expert_idxs, coeff=None, fan_out=1, out=None):
         return Y
 
 @triton.autotune(configs=_config_grouping(), key=['K'])
-@triton.heuristics({
-    "NO_K_MASK": lambda args: (args['K'] % args['BLOCK_K']) == 0
-})
+@triton.heuristics({"NO_K_MASK": NO_K_MASK})
 @triton.jit
 def _group(
     src_ptr, stride_sn, stride_sk, has_coeff: tl.constexpr, coeff_ptr, FAN_OUT: tl.constexpr,
